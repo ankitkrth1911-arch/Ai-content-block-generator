@@ -110,17 +110,28 @@ export const openAiPageJsonSchema = {
 } as const;
 
 /**
- * Initializes OpenAI client from environment variables.
- * Throws early if API key is not configured.
+ * Model selection for Groq:
+ * Groq supports strict structured outputs on select models including
+ * "openai/gpt-oss-120b" and "moonshotai/kimi-k2-instruct-0905".
  */
-function getOpenAIClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey || apiKey.trim() === "" || apiKey === "your_openai_api_key_here") {
+export const MODEL = "openai/gpt-oss-120b";
+export const FALLBACK_MODEL = "moonshotai/kimi-k2-instruct-0905";
+
+/**
+ * Initializes OpenAI client pointing to Groq's OpenAI-compatible endpoint.
+ * Reads GROQ_API_KEY from environment variables.
+ */
+function getClient(): OpenAI {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey || apiKey.trim() === "" || apiKey === "your_groq_api_key_here") {
     throw new LLMApiError(
-      "OPENAI_API_KEY is not configured or is using placeholder. Please set OPENAI_API_KEY in your environment or .env.local file."
+      "GROQ_API_KEY is not set. Add it to your .env.local file."
     );
   }
-  return new OpenAI({ apiKey: apiKey.trim() });
+  return new OpenAI({
+    apiKey: apiKey.trim(),
+    baseURL: "https://api.groq.com/openai/v1",
+  });
 }
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
@@ -139,7 +150,7 @@ async function callOpenAIWithTransientRetry(
   for (let attempt = 1; attempt <= maxApiAttempts; attempt++) {
     try {
       return await client.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: MODEL,
         messages,
         response_format: {
           type: "json_schema",
@@ -153,7 +164,7 @@ async function callOpenAIWithTransientRetry(
       // If it's a 4xx error other than 429 (e.g. invalid auth), do not retry
       if (error?.status && error.status >= 400 && error.status < 500 && error.status !== 429) {
         throw new LLMApiError(
-          error.message || `OpenAI client error: ${error.status}`,
+          error.message || `LLM API client error: ${error.status}`,
           error
         );
       }
@@ -166,7 +177,7 @@ async function callOpenAIWithTransientRetry(
   }
 
   throw new LLMApiError(
-    "Transient OpenAI API error. Service is temporarily unavailable or rate limited, please retry.",
+    "Transient Groq API error. Service is temporarily unavailable or rate limited, please retry.",
     lastError
   );
 }
@@ -178,7 +189,7 @@ async function callOpenAIWithTransientRetry(
 async function executeWithContentFeedbackLoop(
   initialMessages: ChatMessage[]
 ): Promise<Page> {
-  const client = getOpenAIClient();
+  const client = getClient();
   const messages: ChatMessage[] = [...initialMessages];
   let lastValidationSummary = "No content returned";
 
